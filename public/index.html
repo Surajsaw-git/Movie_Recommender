@@ -1,0 +1,1560 @@
+<!--
+  MovieRecommender Pro Frontend
+  Adds: Google/GitHub Login buttons, Watchlist view, Recommendations view.
+  Keeps your Admin + SQL Runner exactly as before.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Online Movie System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color:#0b0e13; }
+    .modal { transition: opacity .25s ease; }
+    .modal-content { transition: transform .25s ease; }
+    .star-rating{display:flex;flex-direction:row-reverse;justify-content:flex-end}
+    .star-rating input[type="radio"]{display:none}
+    .star-rating label{font-size:2rem;color:#d1d5db;cursor:pointer;transition:color .2s}
+    .star-rating input[type="radio"]:checked ~ label,
+    .star-rating label:hover, .star-rating label:hover~label{color:#f59e0b}
+    .star-rating-small{display:flex;flex-direction:row-reverse;justify-content:flex-end}
+    .star-rating-small input[type="radio"]{display:none}
+    .star-rating-small label{font-size:1.2rem;color:#d1d5db;cursor:pointer;transition:color .2s}
+    .star-rating-small input[type="radio"]:checked ~ label,
+    .star-rating-small label:hover, .star-rating-small label:hover~label{color:#f59e0b}
+    .tag-container{display:flex;flex-wrap:wrap;gap:.5rem;background:#374151;border:1px solid #4b5563;border-radius:.375rem;padding:.5rem}
+    .tag{display:inline-flex;align-items:center;background:#4b5563;border-radius:.25rem;padding:.25rem .5rem;font-size:.875rem}
+    .tag-close{margin-left:.25rem;cursor:pointer;font-weight:bold}
+    .tag-input{flex-grow:1;background:none;border:none;outline:none;padding:.25rem}
+    .results-table{width:100%;border-collapse:collapse;table-layout:auto}
+    .results-table th,.results-table td{border:1px solid #4b5563;padding:.75rem;text-align:left;word-break:break-all}
+    .results-table th{background:#374151}
+    .results-table td[contenteditable="true"]{background:#1f2937;outline:2px solid #3b82f6}
+    .results-table tr:nth-child(even){background:#1f2937}
+    .results-table tr.new-record-row td{background:#1e3a8a}
+    #sql-query-input{font-family: 'Courier New', monospace;font-size:1rem;line-height:1.5;background:#1f2937;border:1px solid #4b5563;color:#e5e7eb}
+    button:hover{transform:scale(1.03);transition:.2s}
+  </style>
+</head>
+<body class="bg-gray-900 text-white">
+  <!-- Header -->
+  <header class="bg-gray-800 shadow-lg sticky top-0 z-40">
+    <div class="container mx-auto p-4 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center gap-6">
+        <h1 class="text-3xl font-bold text-white">MovieRecommender</h1>
+        <!-- View Selector -->
+        <select id="view-selector" class="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white focus:outline-none">
+          <option value="dashboard">Movie Dashboard</option>
+          <option value="recommend">Recommendations</option>
+          <option value="watchlist">Watchlist</option>
+          <option value="profile">Profile - My Ratings</option>
+          <option value="admin">Database Admin</option>
+          <option value="sql-runner">SQL Runner</option>
+        </select>
+      </div>
+      <!-- Search Bar (Dashboard-like views) -->
+      <div id="dashboard-search-container" class="flex-grow max-w-lg">
+        <input type="search" id="search-bar" placeholder="Search by movie, actor, director, genre..." class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+      <!-- Header Buttons -->
+      <div id="header-buttons" class="flex items-center gap-3"></div>
+    </div>
+  </header>
+
+  <!-- DASHBOARD -->
+  <main id="movie-dashboard" class="container mx-auto p-8">
+    <h2 class="text-3xl font-semibold mb-6">All Movies</h2>
+    <div id="movie-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8"></div>
+  </main>
+
+  <!-- RECOMMENDATIONS -->
+  <main id="recommend-panel" class="container mx-auto p-8 hidden">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-3xl font-semibold">Recommended For You</h2>
+      <div class="flex gap-2">
+        <button id="ai-recommend-btn" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-all">AI Recommendations</button>
+        <button id="standard-recommend-btn" class="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition-all">Standard</button>
+      </div>
+    </div>
+    <p id="recommend-status" class="mb-4 text-gray-300"></p>
+    <div id="recommend-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8"></div>
+  </main>
+
+  <!-- WATCHLIST -->
+  <main id="watchlist-panel" class="container mx-auto p-8 hidden">
+    <h2 class="text-3xl font-semibold mb-6">Your Watchlist</h2>
+    <p id="watchlist-status" class="mb-4 text-gray-300"></p>
+    <div id="watchlist-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8"></div>
+  </main>
+
+  <!-- ADMIN PANEL (unchanged UI) -->
+  <main id="admin-panel" class="container mx-auto p-8 hidden">
+    <h2 class="text-3xl font-semibold mb-6">Database Admin</h2>
+    <div class="bg-gray-800 p-4 rounded-lg mb-6 flex flex-wrap items-center gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-300 mb-1">Select Table</label>
+        <select id="table-select" class="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white focus:outline-none">
+          <option value="">-- Loading Tables --</option>
+        </select>
+      </div>
+      <div class="flex-grow max-w-lg">
+        <label class="block text-sm font-medium text-gray-300 mb-1">Search Table</label>
+        <input type="search" id="table-search" placeholder="Search current table..." class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white placeholder-gray-400 focus:outline-none">
+      </div>
+      <div class="self-end">
+        <button id="add-record-btn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all">Add New Record</button>
+      </div>
+    </div>
+    <p id="admin-status" class="text-lg mb-4"></p>
+    <div id="admin-table-container" class="overflow-x-auto bg-gray-800 rounded-lg p-1"></div>
+  </main>
+
+  <!-- SQL RUNNER -->
+  <main id="sql-runner-panel" class="container mx-auto p-8 hidden">
+    <h2 class="text-3xl font-semibold mb-6">SQL Runner</h2>
+    <div class="bg-gray-800 p-6 rounded-lg">
+      <label class="block text-sm font-medium text-gray-300 mb-2">Enter your SQL Query</label>
+      <textarea id="sql-query-input" rows="10" class="w-full rounded-md p-3" placeholder="SELECT * FROM user LIMIT 10;"></textarea>
+      <button id="run-query-btn" class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-all font-semibold">Run Query</button>
+      <div class="mt-6">
+        <h3 class="text-xl font-semibold mb-2">Results</h3>
+        <p id="sql-status" class="text-lg mb-4"></p>
+        <div id="sql-results-container" class="overflow-x-auto bg-gray-900 rounded-lg p-1"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- PROFILE PANEL -->
+  <main id="profile-panel" class="container mx-auto p-8 hidden">
+    <h2 class="text-3xl font-semibold mb-6">My Ratings</h2>
+    <p id="profile-status" class="mb-4 text-gray-300"></p>
+    <div id="profile-ratings-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-8"></div>
+  </main>
+
+  <!-- MOVIE MODAL -->
+  <div id="movie-modal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden opacity-0">
+    <div class="modal-content bg-gray-800 text-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto transform -translate-y-10">
+      <div class="flex justify-between items-center p-6 border-b border-gray-700">
+        <h3 id="modal-title" class="text-2xl font-semibold">Movie Title</h3>
+        <button data-close-modal class="text-gray-400 text-3xl hover:text-white">&times;</button>
+      </div>
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div>
+            <h4 class="text-xl font-semibold mb-2">Details</h4>
+            <p id="modal-year" class="mb-1"></p>
+            <p id="modal-director" class="mb-1"></p>
+            <p id="modal-production" class="mb-1"></p>
+            <p id="modal-actors" class="mb-4"></p>
+            <img id="modal-image" src="" alt="Movie Poster" class="w-full h-auto rounded-lg object-cover mb-4">
+            <div class="flex gap-2 mb-4">
+              <button id="watchlist-toggle-btn" class="flex-1 bg-amber-500 text-white px-3 py-2 rounded hover:bg-amber-600">Add to Watchlist</button>
+            </div>
+            <div class="bg-gray-700 p-4 rounded-lg mb-4">
+              <h4 class="text-xl font-semibold mb-3">⭐ Rate This Movie</h4>
+              <form id="rating-form">
+                <div class="mb-4">
+                  <label class="block text-sm font-medium text-gray-300 mb-2">Select Your Rating (1-5 stars)</label>
+                  <div class="star-rating">
+                    <input type="radio" id="star5" name="rating" value="5"><label for="star5" title="5 stars">&#9733;</label>
+                    <input type="radio" id="star4" name="rating" value="4"><label for="star4" title="4 stars">&#9733;</label>
+                    <input type="radio" id="star3" name="rating" value="3"><label for="star3" title="3 stars">&#9733;</label>
+                    <input type="radio" id="star2" name="rating" value="2"><label for="star2" title="2 stars">&#9733;</label>
+                    <input type="radio" id="star1" name="rating" value="1"><label for="star1" title="1 star">&#9733;</label>
+                  </div>
+                  <p class="text-xs text-gray-400 mt-2">Click on a star to select your rating</p>
+                </div>
+                <button type="submit" id="submit-rating-btn" class="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all disabled:bg-gray-500 disabled:cursor-not-allowed font-semibold">Submit Rating</button>
+                <p id="rating-status" class="text-sm mt-2"></p>
+              </form>
+            </div>
+          </div>
+          <div>
+            <h4 class="text-xl font-semibold mb-2">User Ratings</h4>
+            <ul id="modal-ratings-list" class="space-y-2 max-h-64 overflow-y-auto bg-gray-900 p-4 rounded-lg mb-6"></ul>
+            <div id="modal-trailer-container"></div>
+          </div>
+        </div>
+        <!-- Similar Movies Tabs -->
+        <div class="mt-6">
+          <div class="flex border-b border-gray-700 mb-4">
+            <button class="similar-tab-btn px-4 py-2 font-semibold border-b-2 border-blue-500 text-white" data-tab="similar">Similar Movies</button>
+            <button class="similar-tab-btn px-4 py-2 font-semibold border-b-2 border-transparent text-gray-400" data-tab="director">Similar by Director</button>
+            <button class="similar-tab-btn px-4 py-2 font-semibold border-b-2 border-transparent text-gray-400" data-tab="production">Similar by Production</button>
+          </div>
+          <div id="similar-movies-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTH MODAL -->
+  <div id="auth-modal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden opacity-0">
+    <div class="modal-content bg-gray-800 text-white rounded-lg shadow-xl w-full max-w-md transform -translate-y-10">
+      <div class="flex justify-between items-center p-4 border-b border-gray-700">
+        <h3 class="text-xl font-semibold">Sign In or Create Account</h3>
+        <button data-close-modal class="text-gray-400 text-3xl hover:text-white">&times;</button>
+      </div>
+      <div class="flex border-b border-gray-700">
+        <button data-tab="login" class="tab-btn flex-1 p-3 font-semibold border-b-2 border-blue-500 text-white">Login</button>
+        <button data-tab="register" class="tab-btn flex-1 p-3 font-semibold border-b-2 border-transparent text-gray-400">Register</button>
+      </div>
+
+      <!-- OAuth buttons -->
+      <div class="p-6 pt-4">
+        <button id="google-login" class="w-full bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all mb-2">Continue with Google</button>
+        <button id="github-login" class="w-full bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-all">Continue with GitHub</button>
+        <div class="my-4 text-center text-gray-400">or</div>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form" class="p-6">
+        <div class="mb-4">
+          <label for="login-email" class="block text-sm font-medium text-gray-300">Email</label>
+          <input type="email" id="login-email" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <div class="mb-4">
+          <label for="login-password" class="block text-sm font-medium text-gray-300">Password</label>
+          <input type="password" id="login-password" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <button type="submit" class="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all">Login</button>
+        <p id="login-status" class="text-sm mt-2 text-red-400"></p>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="p-6 hidden">
+        <div class="mb-4">
+          <label for="reg-username" class="block text-sm font-medium text-gray-300">Username</label>
+          <input type="text" id="reg-username" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <div class="mb-4">
+          <label for="reg-email" class="block text-sm font-medium text-gray-300">Email</label>
+          <input type="email" id="reg-email" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <div class="mb-4">
+          <label for="reg-password" class="block text-sm font-medium text-gray-300">Password</label>
+          <input type="password" id="reg-password" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <button type="submit" class="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all">Create Account</button>
+        <p id="register-status" class="text-sm mt-2 text-red-400"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD MOVIE MODAL (same as before; supports imageUrl) -->
+  <div id="add-movie-modal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden opacity-0">
+    <div class="modal-content bg-gray-800 text-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform -translate-y-10">
+      <div class="flex justify-between items-center p-6 border-b border-gray-700">
+        <h3 class="text-2xl font-semibold">Add New Movie</h3>
+        <button data-close-modal class="text-gray-400 text-3xl hover:text-white">&times;</button>
+      </div>
+      <form id="add-movie-form" class="p-6 space-y-4">
+        <div>
+          <label>Movie Title</label>
+          <input type="text" id="add-title" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <div>
+          <label>Release Year</label>
+          <input type="number" id="add-year" required class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white" placeholder="e.g., 2024">
+        </div>
+        <div>
+          <label>Movie Poster URL</label>
+          <input type="text" id="add-image-url" placeholder="https://... image link" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <div>
+          <label>Movie Trailer URL (YouTube) - Optional</label>
+          <input type="text" id="add-trailer-url" placeholder="https://www.youtube.com/watch?v=..." class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+        </div>
+        <div>
+          <label>Director</label>
+          <input type="text" id="add-director" required list="directors-list" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+          <datalist id="directors-list"></datalist>
+        </div>
+        <div>
+          <label>Production House</label>
+          <input type="text" id="add-prod-house" required list="prod-houses-list" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white">
+          <datalist id="prod-houses-list"></datalist>
+        </div>
+        <div>
+          <label>Actors (Type and press Enter or click away to add)</label>
+          <div id="actor-tags" class="tag-container">
+            <input type="text" list="actors-list" class="tag-input" placeholder="Add actor...">
+          </div>
+          <datalist id="actors-list"></datalist>
+        </div>
+        <div>
+          <label>Genres (Type and press Enter or click away to add)</label>
+          <div id="genre-tags" class="tag-container">
+            <input type="text" list="genres-list" class="tag-input" placeholder="Add genre...">
+          </div>
+          <datalist id="genres-list"></datalist>
+        </div>
+        <button type="submit" class="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-all">Submit Movie</button>
+        <p id="add-movie-status" class="text-sm mt-2"></p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- CONFIG ---
+    const API_BASE_URL = (location.hostname === 'localhost') ? 'http://localhost:3000/api' : '/api';
+
+    // --- GLOBAL STATE ---
+    let currentUser = null;
+    let allFormData = { directors: [], actors: [], genres: [], prodHouses: [] };
+    let currentTableInfo = {};
+
+    // --- ELEMENTS ---
+    const movieGrid = document.getElementById('movie-grid');
+    const searchBar = document.getElementById('search-bar');
+    const headerButtons = document.getElementById('header-buttons');
+
+    const movieModal = document.getElementById('movie-modal');
+    const authModal = document.getElementById('auth-modal');
+    const addMovieModal = document.getElementById('add-movie-modal');
+
+    const modalTitle = document.getElementById('modal-title');
+    const modalYear = document.getElementById('modal-year');
+    const modalDirector = document.getElementById('modal-director');
+    const modalProduction = document.getElementById('modal-production');
+    const modalActors = document.getElementById('modal-actors');
+    const modalRatingsList = document.getElementById('modal-ratings-list');
+    const modalTrailerContainer = document.getElementById('modal-trailer-container');
+    const similarMoviesContainer = document.getElementById('similar-movies-container');
+    const ratingForm = document.getElementById('rating-form');
+    const submitRatingBtn = document.getElementById('submit-rating-btn');
+    const ratingStatus = document.getElementById('rating-status');
+    const watchlistToggleBtn = document.getElementById('watchlist-toggle-btn');
+
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const loginStatus = document.getElementById('login-status');
+    const registerStatus = document.getElementById('register-status');
+
+    const addMovieForm = document.getElementById('add-movie-form');
+    const addMovieStatus = document.getElementById('add-movie-status');
+
+    const actorTagContainer = document.getElementById('actor-tags');
+    const genreTagContainer = document.getElementById('genre-tags');
+    const actorInput = actorTagContainer.querySelector('input');
+    const genreInput = genreTagContainer.querySelector('input');
+
+    const viewSelector = document.getElementById('view-selector');
+    const movieDashboard = document.getElementById('movie-dashboard');
+    const recommendPanel = document.getElementById('recommend-panel');
+    const watchlistPanel = document.getElementById('watchlist-panel');
+    const profilePanel = document.getElementById('profile-panel');
+    const profileRatingsGrid = document.getElementById('profile-ratings-grid');
+    const profileStatus = document.getElementById('profile-status');
+    const adminPanel = document.getElementById('admin-panel');
+    const dashboardSearch = document.getElementById('dashboard-search-container');
+    const tableSelect = document.getElementById('table-select');
+    const tableSearch = document.getElementById('table-search');
+    const addRecordBtn = document.getElementById('add-record-btn');
+    const adminStatus = document.getElementById('admin-status');
+    const adminTableContainer = document.getElementById('admin-table-container');
+
+    const sqlRunnerPanel = document.getElementById('sql-runner-panel');
+    const sqlQueryInput = document.getElementById('sql-query-input');
+    const runQueryBtn = document.getElementById('run-query-btn');
+    const sqlStatus = document.getElementById('sql-status');
+    const sqlResultsContainer = document.getElementById('sql-results-container');
+
+    const recommendGrid = document.getElementById('recommend-grid');
+    const recommendStatus = document.getElementById('recommend-status');
+    const watchlistGrid = document.getElementById('watchlist-grid');
+    const watchlistStatus = document.getElementById('watchlist-status');
+
+    // --- HELPERS ---
+    function apiFetch(path, options = {}) {
+      const opts = { credentials: 'include', ...options };
+      return fetch(`${API_BASE_URL}${path}`, opts);
+    }
+
+    function placeholderImage(title) {
+      return `https://placehold.co/400x600/374151/9ca3af?text=${encodeURIComponent(title)}`;
+    }
+
+    function movieCardHtml(movie, showRemoveWatchlist = false, showDashboardActions = false) {
+      const avgRating = movie.averageRating ? parseFloat(movie.averageRating).toFixed(1) : 'N/A';
+      const ratingCount = movie.ratingCount || 0;
+      const img = movie.imageUrl || placeholderImage(movie.titleName);
+      const removeChip = showRemoveWatchlist && currentUser ? `
+        <button class="remove-watchlist-chip absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full hover:bg-red-600 z-10" data-movie-id="${movie.movieId}" onclick="event.stopPropagation(); removeFromWatchlist(${movie.movieId})">
+          Remove
+        </button>
+      ` : '';
+      
+      // Dashboard actions (rating and watchlist) - only show on dashboard
+      const dashboardActions = showDashboardActions ? `
+        <div class="mt-3 pt-3 border-t border-gray-700 space-y-2" onclick="event.stopPropagation();">
+          ${currentUser ? `
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-gray-400">Your Rating:</span>
+              <div class="star-rating-small" data-movie-id="${movie.movieId}">
+                <input type="radio" name="card-rating-${movie.movieId}" value="5" id="card-star5-${movie.movieId}" onchange="rateMovieFromCard(${movie.movieId}, 5)"><label for="card-star5-${movie.movieId}">&#9733;</label>
+                <input type="radio" name="card-rating-${movie.movieId}" value="4" id="card-star4-${movie.movieId}" onchange="rateMovieFromCard(${movie.movieId}, 4)"><label for="card-star4-${movie.movieId}">&#9733;</label>
+                <input type="radio" name="card-rating-${movie.movieId}" value="3" id="card-star3-${movie.movieId}" onchange="rateMovieFromCard(${movie.movieId}, 3)"><label for="card-star3-${movie.movieId}">&#9733;</label>
+                <input type="radio" name="card-rating-${movie.movieId}" value="2" id="card-star2-${movie.movieId}" onchange="rateMovieFromCard(${movie.movieId}, 2)"><label for="card-star2-${movie.movieId}">&#9733;</label>
+                <input type="radio" name="card-rating-${movie.movieId}" value="1" id="card-star1-${movie.movieId}" onchange="rateMovieFromCard(${movie.movieId}, 1)"><label for="card-star1-${movie.movieId}">&#9733;</label>
+              </div>
+            </div>
+            <button class="w-full bg-amber-500 text-white text-xs px-3 py-2 rounded hover:bg-amber-600 transition-all" onclick="event.stopPropagation(); toggleWatchlistFromCard(${movie.movieId}, this)" data-movie-id="${movie.movieId}" data-in-watchlist="false">
+              Add to Watchlist
+            </button>
+          ` : `
+            <p class="text-xs text-gray-400 text-center mb-2">Login to rate and add to watchlist</p>
+            <button class="w-full bg-blue-500 text-white text-xs px-3 py-2 rounded hover:bg-blue-600 transition-all" onclick="event.stopPropagation(); openModal(authModal)">
+              Login
+            </button>
+          `}
+        </div>
+      ` : '';
+      
+      return `
+        <div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-transform duration-200 relative movie-card" data-movie-id="${movie.movieId}">
+          ${removeChip}
+          <img src="${img}" alt="${movie.titleName}" class="w-full h-64 object-cover">
+          <div class="p-4">
+            <h3 class="text-lg font-semibold truncate">${movie.titleName}</h3>
+            <p class="text-sm text-gray-400">${movie.releaseYear}</p>
+            <div class="flex items-center justify-between mt-2">
+              <span class="text-yellow-400 font-bold">★ ${avgRating}</span>
+              <span class="text-xs text-gray-500">${ratingCount} ${ratingCount === 1 ? 'rating' : 'ratings'}</span>
+            </div>
+            ${dashboardActions}
+          </div>
+        </div>
+      `;
+    }
+
+    // --- LOAD MOVIES ---
+    async function loadMovies(searchTerm = '') {
+      movieGrid.innerHTML = '<p class="text-gray-400 col-span-full">Loading movies...</p>';
+      try {
+        const r = await apiFetch(`/movies?search=${encodeURIComponent(searchTerm)}`);
+        const movies = await r.json();
+        if (!Array.isArray(movies) || movies.length === 0) {
+          movieGrid.innerHTML = '<p class="text-gray-400 col-span-full">No movies found.</p>';
+          return;
+        }
+        
+        // Get user's ratings and watchlist if logged in
+        let userRatings = [];
+        let userWatchlist = [];
+        if (currentUser) {
+          try {
+            const [ratingsRes, watchlistRes] = await Promise.all([
+              apiFetch(`/user-ratings/${currentUser.userId}`),
+              apiFetch(`/watchlist/${currentUser.userId}`)
+            ]);
+            if (ratingsRes.ok) userRatings = await ratingsRes.json();
+            if (watchlistRes.ok) userWatchlist = await watchlistRes.json();
+          } catch (err) {
+            console.error('Error loading user data:', err);
+          }
+        }
+        
+        movieGrid.innerHTML = '';
+        movies.forEach(m => {
+          const card = document.createElement('div');
+          card.innerHTML = movieCardHtml(m, false, true); // Show dashboard actions
+          const cardElement = card.firstElementChild;
+          
+          // Add click handler to open modal (excluding action buttons)
+          cardElement.addEventListener('click', (e) => {
+            // Don't open modal if clicking on rating stars or watchlist button
+            if (e.target.closest('.star-rating-small') || e.target.closest('button')) {
+              return;
+            }
+            openModal(movieModal, m.movieId);
+          });
+          
+          // Pre-select user's rating if exists
+          if (currentUser) {
+            const userRating = userRatings.find(r => r.movieId === m.movieId);
+            if (userRating) {
+              const ratingInput = cardElement.querySelector(`input[value="${userRating.rating}"]`);
+              if (ratingInput) ratingInput.checked = true;
+            }
+            
+            // Update watchlist button state
+            const isInWatchlist = userWatchlist.some(w => w.movieId === m.movieId);
+            const watchlistBtn = cardElement.querySelector('button[data-movie-id]');
+            if (watchlistBtn) {
+              watchlistBtn.dataset.inWatchlist = isInWatchlist;
+              if (isInWatchlist) {
+                watchlistBtn.textContent = 'Remove from Watchlist';
+                watchlistBtn.className = 'w-full bg-gray-600 text-white text-xs px-3 py-2 rounded hover:bg-gray-700 transition-all';
+              }
+            }
+          }
+          
+          movieGrid.appendChild(cardElement);
+        });
+      } catch (e) {
+        console.error('Error loading movies:', e);
+        movieGrid.innerHTML = '<p class="text-red-400 col-span-full">Failed to load movies.</p>';
+      }
+    }
+
+    // --- MODALS ---
+    function openModal(modalEl, movieId = null) {
+      if (movieId && modalEl === movieModal) {
+        populateMovieModal(movieId);
+        ratingForm.reset();
+        ratingStatus.textContent = '';
+        ratingForm.dataset.movieId = movieId;
+      }
+      if (modalEl === addMovieModal) {
+        populateAddMovieDatalists();
+        addMovieForm.reset();
+        actorTagContainer.querySelectorAll('.tag').forEach(t => t.remove());
+        genreTagContainer.querySelectorAll('.tag').forEach(t => t.remove());
+      }
+      if (modalEl === authModal) {
+        loginForm.reset(); registerForm.reset();
+        loginStatus.textContent = ''; registerStatus.textContent = '';
+      }
+      modalEl.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => {
+        modalEl.classList.remove('opacity-0');
+        modalEl.querySelector('.modal-content').classList.remove('-translate-y-10');
+      }, 10);
+    }
+    function closeModal(modalEl) {
+      modalEl.classList.add('opacity-0');
+      modalEl.querySelector('.modal-content').classList.add('-translate-y-10');
+      document.body.style.overflow = 'auto';
+      setTimeout(() => modalEl.classList.add('hidden'), 300);
+    }
+
+    // --- MOVIE MODAL POPULATE ---
+    async function populateMovieModal(movieId) {
+      // Show loading state
+      modalTitle.textContent = 'Loading...';
+      modalYear.textContent = '';
+      modalDirector.textContent = '';
+      modalProduction.textContent = '';
+      modalActors.textContent = '';
+      modalRatingsList.innerHTML = '<li class="text-gray-400">Loading ratings...</li>';
+      modalTrailerContainer.innerHTML = '';
+      similarMoviesContainer.innerHTML = '<p class="text-gray-400 col-span-full">Loading similar movies...</p>';
+      document.getElementById('modal-image').src = placeholderImage('Loading');
+
+      // Reset rating form
+      ratingForm.reset();
+      const ratingInputs = ratingForm.querySelectorAll('input[type="radio"]');
+      ratingInputs.forEach(input => input.checked = false);
+      ratingForm.dataset.movieId = movieId;
+
+      // Set rating button state
+      submitRatingBtn.disabled = !currentUser;
+      if (currentUser) {
+        submitRatingBtn.textContent = 'Submit Rating';
+        ratingStatus.textContent = '';
+        ratingStatus.className = 'text-sm mt-2';
+      } else {
+        submitRatingBtn.textContent = 'Login to Rate';
+        ratingStatus.textContent = 'Please log in to rate this movie.';
+        ratingStatus.className = 'text-sm mt-2 text-amber-400';
+      }
+
+      // Check if movie is in watchlist and get user's existing rating
+      let isInWatchlist = false;
+      let userRating = null;
+      if (currentUser) {
+        try {
+          const [watchlistRes, userRatingsRes] = await Promise.all([
+            apiFetch(`/watchlist/${currentUser.userId}`),
+            apiFetch(`/user-ratings/${currentUser.userId}`)
+          ]);
+          if (watchlistRes.ok) {
+            const watchlist = await watchlistRes.json();
+            isInWatchlist = watchlist.some(m => m.movieId === parseInt(movieId));
+          }
+          if (userRatingsRes.ok) {
+            const userRatings = await userRatingsRes.json();
+            const existingRating = userRatings.find(r => r.movieId === parseInt(movieId));
+            if (existingRating) {
+              userRating = existingRating.rating;
+              // Pre-select the user's rating
+              const ratingInput = ratingForm.querySelector(`input[value="${userRating}"]`);
+              if (ratingInput) {
+                ratingInput.checked = true;
+                ratingStatus.textContent = `You rated this movie ${userRating} star${userRating > 1 ? 's' : ''}. You can change your rating below.`;
+                ratingStatus.className = 'text-sm mt-2 text-blue-400';
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error loading user data:', err);
+        }
+      }
+
+      try {
+        // Fetch movie details and ratings in parallel
+        const [detailsRes, ratingsRes] = await Promise.all([
+          apiFetch(`/movie/${movieId}`),
+          apiFetch(`/movie_details/${movieId}`)
+        ]);
+
+        // Handle movie details
+        if (detailsRes.ok) {
+          const movie = await detailsRes.json();
+          
+          // Populate all movie details
+          modalTitle.textContent = movie.titleName || 'Unknown Movie';
+          modalYear.textContent = `Release Year: ${movie.releaseYear || 'N/A'}`;
+          modalDirector.textContent = `Director: ${movie.directorName || 'N/A'}`;
+          modalProduction.textContent = `Production House: ${movie.productionHouses || 'N/A'}`;
+          modalActors.textContent = `Actors: ${movie.actors || 'N/A'}`;
+          
+          // Set movie poster
+          const modalImage = document.getElementById('modal-image');
+          if (movie.imageUrl) {
+            modalImage.src = movie.imageUrl;
+            modalImage.onerror = () => { modalImage.src = placeholderImage(movie.titleName); };
+          } else {
+            modalImage.src = placeholderImage(movie.titleName);
+          }
+
+          // Trailer embed - Show prominently
+          if (movie.trailerUrl && movie.trailerUrl.trim() !== '') {
+            let embedUrl = movie.trailerUrl.trim();
+            // Convert various YouTube URL formats to embed format
+            if (embedUrl.includes('youtube.com/watch?v=')) {
+              embedUrl = embedUrl.replace('youtube.com/watch?v=', 'youtube.com/embed/').split('&')[0];
+            } else if (embedUrl.includes('youtu.be/')) {
+              embedUrl = embedUrl.replace('youtu.be/', 'youtube.com/embed/');
+            } else if (embedUrl.includes('youtube.com/embed/')) {
+              // Already in embed format
+              embedUrl = embedUrl.split('&')[0];
+            }
+            
+            // Ensure it's a valid YouTube embed URL
+            if (embedUrl.includes('youtube.com/embed/')) {
+              modalTrailerContainer.innerHTML = `
+                <h4 class="text-xl font-semibold mb-3">🎬 Movie Trailer</h4>
+                <div class="aspect-video bg-gray-900 rounded-lg overflow-hidden shadow-lg">
+                  <iframe class="w-full h-full" src="${embedUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                </div>
+              `;
+            } else {
+              modalTrailerContainer.innerHTML = '<p class="text-gray-400 text-sm">Invalid trailer URL format.</p>';
+            }
+          } else {
+            modalTrailerContainer.innerHTML = '<p class="text-gray-400 text-sm">No trailer available for this movie.</p>';
+          }
+
+          // Set watchlist button state
+          if (isInWatchlist) {
+            watchlistToggleBtn.textContent = 'Remove from Watchlist';
+            watchlistToggleBtn.className = 'flex-1 bg-gray-600 text-white px-3 py-2 rounded hover:bg-gray-700';
+          } else {
+            watchlistToggleBtn.textContent = 'Add to Watchlist';
+            watchlistToggleBtn.className = 'flex-1 bg-amber-500 text-white px-3 py-2 rounded hover:bg-amber-600';
+          }
+
+          // Watchlist toggle handler
+          watchlistToggleBtn.onclick = async () => {
+            if (!currentUser) { 
+              openModal(authModal); 
+              return; 
+            }
+            try {
+              const body = JSON.stringify({ movieId });
+              if (isInWatchlist) {
+                const resp = await apiFetch('/watchlist/remove', { 
+                  method: 'POST', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body 
+                });
+                if (resp.ok) {
+                  isInWatchlist = false;
+                  watchlistToggleBtn.textContent = 'Add to Watchlist';
+                  watchlistToggleBtn.className = 'flex-1 bg-amber-500 text-white px-3 py-2 rounded hover:bg-amber-600';
+                  if (!watchlistPanel.classList.contains('hidden')) loadWatchlist();
+                } else {
+                  alert('Failed to remove from watchlist. Please try again.');
+                }
+              } else {
+                const resp = await apiFetch('/watchlist/add', { 
+                  method: 'POST', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body 
+                });
+                if (resp.ok) {
+                  isInWatchlist = true;
+                  watchlistToggleBtn.textContent = 'Remove from Watchlist';
+                  watchlistToggleBtn.className = 'flex-1 bg-gray-600 text-white px-3 py-2 rounded hover:bg-gray-700';
+                  if (!watchlistPanel.classList.contains('hidden')) loadWatchlist();
+                } else {
+                  alert('Failed to add to watchlist. Please try again.');
+                }
+              }
+            } catch (err) {
+              console.error('Watchlist toggle error:', err);
+              alert('An error occurred. Please try again.');
+            }
+          };
+
+          // Load similar movies (default tab)
+          loadSimilarMovies(movieId, 'similar');
+        } else {
+          // Movie not found
+          modalTitle.textContent = 'Movie Not Found';
+          modalYear.textContent = '';
+          modalDirector.textContent = '';
+          modalProduction.textContent = '';
+          modalActors.textContent = '';
+          modalRatingsList.innerHTML = '<li class="text-red-400 p-2">Movie not found.</li>';
+          modalTrailerContainer.innerHTML = '<p class="text-red-400 text-sm">Movie not found.</p>';
+          console.error('Movie not found:', detailsRes.status);
+        }
+
+        // Handle ratings
+        if (ratingsRes.ok) {
+          const ratings = await ratingsRes.json();
+          if (ratings && ratings.length > 0) {
+            modalRatingsList.innerHTML = ratings.map(r => `
+              <li class="flex justify-between items-center p-2 hover:bg-gray-800 rounded">
+                <span class="font-medium">${r.userName || 'Anonymous'}</span>
+                <span class="text-yellow-400 font-bold">★ ${parseFloat(r.rating || 0).toFixed(1)}</span>
+              </li>
+            `).join('');
+          } else {
+            modalRatingsList.innerHTML = '<li class="text-gray-400 p-2">No ratings yet. Be the first to rate!</li>';
+          }
+        } else if (ratingsRes.status === 404) {
+          modalRatingsList.innerHTML = '<li class="text-gray-400 p-2">No ratings found for this movie.</li>';
+        } else {
+          modalRatingsList.innerHTML = '<li class="text-red-400 p-2">Failed to load ratings.</li>';
+        }
+      } catch (e) {
+        console.error('Error loading movie details:', e);
+        modalTitle.textContent = 'Error Loading Movie';
+        modalRatingsList.innerHTML = '<li class="text-red-400 p-2">Failed to load movie details. Please try again.</li>';
+        modalTrailerContainer.innerHTML = '<p class="text-red-400 text-sm">Failed to load trailer.</p>';
+      }
+    }
+
+    // --- RATING SUBMIT ---
+    async function handleRatingSubmit(e) {
+      e.preventDefault();
+      if (!currentUser) return;
+      const movieId = ratingForm.dataset.movieId;
+      const rating = new FormData(ratingForm).get('rating');
+      if (!rating) { ratingStatus.textContent = 'Please select a rating (1-5).'; return; }
+      ratingStatus.textContent = 'Submitting...';
+      submitRatingBtn.disabled = true;
+      try {
+        const resp = await apiFetch('/rate_movie', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ movieId, rating })
+        });
+        if (!resp.ok) throw new Error('Failed to submit rating.');
+        ratingStatus.className = 'text-sm mt-2 text-green-400';
+        ratingStatus.textContent = 'Rating saved successfully!';
+        // Reload current view
+        if (!movieDashboard.classList.contains('hidden')) {
+          loadMovies(searchBar.value);
+        } else if (!recommendPanel.classList.contains('hidden')) {
+          loadRecommendations();
+        } else if (!watchlistPanel.classList.contains('hidden')) {
+          loadWatchlist();
+        } else if (!profilePanel.classList.contains('hidden')) {
+          loadProfileRatings();
+        }
+        // Refresh modal to show updated ratings and pre-select new rating
+        setTimeout(async () => {
+          await populateMovieModal(movieId);
+        }, 500);
+      } catch (err) {
+        ratingStatus.className = 'text-sm mt-2 text-red-400';
+        ratingStatus.textContent = err.message;
+      } finally {
+        submitRatingBtn.disabled = false;
+      }
+    }
+
+    // --- AUTH HELPERS ---
+    async function fetchSessionUser() {
+      try {
+        const r = await apiFetch('/auth/user');
+        currentUser = await r.json();
+        updateHeaderUI();
+      } catch { currentUser = null; updateHeaderUI(); }
+    }
+
+    function updateHeaderUI() {
+      headerButtons.innerHTML = '';
+      if (currentUser) {
+        const welcome = document.createElement('span');
+        welcome.className = 'text-gray-300 hidden sm:block';
+        welcome.textContent = `Welcome, ${currentUser.userName}`;
+        const addBtn = btn('open-add-movie-btn','Add Movie','bg-blue-500 hover:bg-blue-600');
+        
+        // Reload movies if dashboard is visible to show rating/watchlist buttons
+        if (!movieDashboard.classList.contains('hidden')) {
+          loadMovies(searchBar.value);
+        }
+        const logoutBtn = btn('logout-btn','Logout','bg-gray-600 hover:bg-gray-700');
+        headerButtons.append(welcome, addBtn, logoutBtn);
+      } else {
+        const loginBtn = btn('open-auth-btn','Login / Register','bg-blue-500 hover:bg-blue-600');
+        headerButtons.appendChild(loginBtn);
+      }
+    }
+    function btn(id, text, cls) {
+      const b = document.createElement('button');
+      b.id = id; b.textContent = text;
+      b.className = `${cls} text-white px-4 py-2 rounded-lg transition-all`;
+      return b;
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      registerStatus.textContent = 'Creating account...';
+      try {
+        const payload = {
+          userName: document.getElementById('reg-username').value,
+          emailId: document.getElementById('reg-email').value,
+          password: document.getElementById('reg-password').value
+        };
+        const r = await apiFetch('/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to register.');
+        await fetchSessionUser();
+        closeModal(authModal);
+      } catch (err) { registerStatus.textContent = err.message; }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      loginStatus.textContent = 'Logging in...';
+      try {
+        const payload = { emailId: document.getElementById('login-email').value, password: document.getElementById('login-password').value };
+        const r = await apiFetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to login.');
+        await fetchSessionUser();
+        closeModal(authModal);
+      } catch (err) { loginStatus.textContent = err.message; }
+    }
+
+    async function handleLogout() {
+      await apiFetch('/auth/logout', { method: 'POST' });
+      currentUser = null;
+      updateHeaderUI();
+    }
+
+    // OAuth buttons: open popup and then refresh session user
+    function openOAuth(path) {
+      const w = 520, h = 600;
+      const y = window.top.outerHeight / 2 + window.top.screenY - ( h / 2);
+      const x = window.top.outerWidth  / 2 + window.top.screenX - ( w / 2);
+      window.open(`${API_BASE_URL}${path}`, 'oauth', `width=${w},height=${h},top=${y},left=${x}`);
+      // poll after 2s
+      setTimeout(fetchSessionUser, 2000);
+    }
+
+    // --- ADD MOVIE FORM DATA ---
+    async function populateAddMovieDatalists() {
+      if (allFormData.directors.length > 0) return;
+      try {
+        const r = await apiFetch('/form_data');
+        const data = await r.json();
+        allFormData = data;
+        document.getElementById('directors-list').innerHTML = data.directors.map(n => `<option value="${n}"></option>`).join('');
+        document.getElementById('actors-list').innerHTML = data.actors.map(n => `<option value="${n}"></option>`).join('');
+        document.getElementById('genres-list').innerHTML = data.genres.map(n => `<option value="${n}"></option>`).join('');
+        document.getElementById('prod-houses-list').innerHTML = data.prodHouses.map(n => `<option value="${n}"></option>`).join('');
+      } catch {}
+    }
+
+    // --- TAG INPUTS ---
+    function setupTagInput(containerEl) {
+      const input = containerEl.querySelector('input');
+      const tags = new Set();
+      function createTag(text) {
+        text = text.trim();
+        if (tags.has(text) || !text) return;
+        tags.add(text);
+        const tagEl = document.createElement('span');
+        tagEl.className = 'tag';
+        tagEl.textContent = text;
+        const closeEl = document.createElement('span');
+        closeEl.className = 'tag-close';
+        closeEl.textContent = '×';
+        closeEl.onclick = () => { tags.delete(text); tagEl.remove(); };
+        tagEl.appendChild(closeEl);
+        containerEl.prepend(tagEl);
+      }
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); createTag(input.value); input.value = ''; }
+      });
+      input.addEventListener('blur', () => { createTag(input.value); input.value = ''; });
+      return () => Array.from(tags);
+    }
+    const getActorTags = setupTagInput(actorTagContainer);
+    const getGenreTags = setupTagInput(genreTagContainer);
+
+    async function handleAddMovie(e) {
+      e.preventDefault();
+      if (!currentUser) { openModal(authModal); return; }
+      addMovieStatus.className = 'text-sm mt-2 text-gray-400';
+      addMovieStatus.textContent = 'Submitting movie...';
+      try {
+        const payload = {
+          titleName: document.getElementById('add-title').value,
+          releaseYear: document.getElementById('add-year').value,
+          imageUrl: document.getElementById('add-image-url').value,
+          trailerUrl: document.getElementById('add-trailer-url').value,
+          directorName: document.getElementById('add-director').value,
+          prodHouseName: document.getElementById('add-prod-house').value,
+          actorNames: getActorTags(),
+          genreNames: getGenreTags()
+        };
+        if (!payload.titleName || !payload.releaseYear || !payload.directorName || !payload.prodHouseName || payload.actorNames.length === 0 || payload.genreNames.length === 0) {
+          throw new Error('All fields (except Image URL) are required.');
+        }
+        const r = await apiFetch('/add_movie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to add movie.');
+        addMovieStatus.className = 'text-sm mt-2 text-green-400';
+        addMovieStatus.textContent = 'Movie added successfully!';
+        loadMovies();
+        setTimeout(() => closeModal(addMovieModal), 1200);
+      } catch (err) {
+        addMovieStatus.className = 'text-sm mt-2 text-red-400';
+        addMovieStatus.textContent = err.message;
+      }
+    }
+
+    // --- ADMIN TABLE RENDER (unchanged except: instant search, save-state fix) ---
+    function renderAdminTable(rows, columns, compositeKey) {
+      adminStatus.textContent = `Displaying ${rows.length} records. Double-click a cell to edit.`;
+      adminStatus.className = 'text-lg mb-4 text-gray-400';
+
+      const table = document.createElement('table');
+      table.className = 'results-table';
+
+      const thead = table.createTHead();
+      const headerRow = thead.insertRow();
+      columns.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.COLUMN_NAME;
+        if (compositeKey.includes(col.COLUMN_NAME)) {
+          th.textContent += ' 🔑';
+          th.title = 'Primary Key';
+        }
+        headerRow.appendChild(th);
+      });
+      const thActions = document.createElement('th');
+      thActions.textContent = 'Actions';
+      headerRow.appendChild(thActions);
+
+      const tbody = table.createTBody();
+      rows.forEach(row => {
+        const tr = createTableRow(row, columns, compositeKey);
+        tbody.appendChild(tr);
+      });
+
+      adminTableContainer.innerHTML = '';
+      adminTableContainer.appendChild(table);
+    }
+
+    function createTableRow(row, columns, compositeKey, isNew = false) {
+      const tr = document.createElement('tr');
+      if (isNew) tr.classList.add('new-record-row');
+
+      const pkValues = {};
+      compositeKey.forEach(key => { pkValues[key] = row[key]; });
+      tr.dataset.pkValues = JSON.stringify(pkValues);
+
+      columns.forEach(col => {
+        const td = tr.insertCell();
+        td.textContent = row[col.COLUMN_NAME] ?? '';
+        td.dataset.column = col.COLUMN_NAME;
+
+        const isAutoIncrement = (col.EXTRA || '').includes('auto_increment');
+        if (!compositeKey.includes(col.COLUMN_NAME) && !isAutoIncrement) {
+          td.dataset.originalValue = td.textContent;
+          td.addEventListener('dblclick', () => { td.contentEditable = true; td.focus(); });
+          td.addEventListener('blur', () => {
+            td.contentEditable = false;
+            if (td.textContent !== td.dataset.originalValue && !isNew) showSaveButton(tr);
+          });
+        } else {
+          td.classList.add('bg-gray-700', 'text-gray-400');
+          td.title = isAutoIncrement ? 'Auto-increment column' : 'Primary Key (non-editable)';
+        }
+      });
+
+      const tdActions = tr.insertCell();
+      if (isNew) {
+        const saveNewBtn = document.createElement('button');
+        saveNewBtn.textContent = 'Save New';
+        saveNewBtn.className = 'bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600';
+        saveNewBtn.onclick = () => handleSaveNewRecord(tr);
+        tdActions.appendChild(saveNewBtn);
+      } else {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.className = 'bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600';
+        deleteBtn.onclick = () => handleDeleteRecord(tr);
+        tdActions.appendChild(deleteBtn);
+      }
+      return tr;
+    }
+
+    function showSaveButton(tr) {
+      let saveBtn = tr.querySelector('.save-update-btn');
+      if (saveBtn) return;
+      saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save';
+      saveBtn.className = 'save-update-btn bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 ml-2';
+      saveBtn.onclick = () => handleUpdateRecord(tr);
+      const deleteBtn = tr.querySelector('button');
+      deleteBtn.after(saveBtn);
+    }
+
+    async function handleSaveNewRecord(tr) {
+      const tableName = tableSelect.value;
+      const newRecord = {};
+      tr.querySelectorAll('td[data-column]').forEach(td => { if (td.textContent) newRecord[td.dataset.column] = td.textContent; });
+      adminStatus.textContent = 'Saving new record...'; adminStatus.className = 'text-lg mb-4 text-gray-400';
+      try {
+        const r = await apiFetch(`/table/${tableName}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(newRecord) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to save record.');
+        adminStatus.textContent = 'Record saved successfully!'; adminStatus.className = 'text-lg mb-4 text-green-400';
+        loadTableData(tableName);
+      } catch (err) { adminStatus.textContent = err.message; adminStatus.className = 'text-lg mb-4 text-red-400'; }
+    }
+
+    async function handleUpdateRecord(tr) {
+      const tableName = tableSelect.value;
+      const primaryKeyValues = JSON.parse(tr.dataset.pkValues);
+      const updates = {};
+      tr.querySelectorAll('td[contenteditable="true"], td[data-column]').forEach(td => {
+        if (td.dataset.column && td.dataset.originalValue !== undefined && td.textContent !== td.dataset.originalValue) {
+          updates[td.dataset.column] = td.textContent || null;
+        }
+      });
+      if (Object.keys(updates).length === 0) {
+        adminStatus.textContent = 'No changes detected.'; adminStatus.className = 'text-lg mb-4 text-gray-400';
+        tr.querySelector('.save-update-btn')?.remove(); return;
+      }
+      adminStatus.textContent = 'Updating record...'; adminStatus.className = 'text-lg mb-4 text-gray-400';
+      try {
+        const r = await apiFetch(`/table/${tableName}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ primaryKeyValues, updates }) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to update record.');
+        adminStatus.textContent = 'Record updated successfully!'; adminStatus.className = 'text-lg mb-4 text-green-400';
+        tr.querySelectorAll('td[data-column]').forEach(td => { td.dataset.originalValue = td.textContent; });
+        tr.querySelector('.save-update-btn')?.remove();
+      } catch (err) { adminStatus.textContent = err.message; adminStatus.className = 'text-lg mb-4 text-red-400'; }
+    }
+
+    async function handleDeleteRecord(tr) {
+      const tableName = tableSelect.value;
+      const primaryKeyValues = JSON.parse(tr.dataset.pkValues);
+      const pkString = Object.entries(primaryKeyValues).map(([k,v]) => `${k}: ${v}`).join(', ');
+      if (!confirm(`Delete this record?\n(${pkString})`)) return;
+      adminStatus.textContent = 'Deleting record...'; adminStatus.className = 'text-lg mb-4 text-gray-400';
+      try {
+        const r = await apiFetch(`/table/${tableName}`, { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify(primaryKeyValues) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to delete record.');
+        adminStatus.textContent = 'Record deleted successfully!'; adminStatus.className = 'text-lg mb-4 text-green-400';
+        tr.remove();
+      } catch (err) { adminStatus.textContent = err.message; adminStatus.className = 'text-lg mb-4 text-red-400'; }
+    }
+
+    async function populateTableSelect() {
+      try {
+        const r = await apiFetch('/tables'); const names = await r.json();
+        tableSelect.innerHTML = '<option value="">-- Select a Table --</option>';
+        names.forEach(n => { const opt = document.createElement('option'); opt.value = opt.textContent = n; tableSelect.appendChild(opt); });
+      } catch { tableSelect.innerHTML = '<option value="">Error loading tables</option>'; }
+    }
+
+    async function loadTableData(tableName, searchTerm = '') {
+      if (!tableName) { adminTableContainer.innerHTML = ''; adminStatus.textContent = 'Please select a table to view.'; return; }
+      adminTableContainer.innerHTML = '<p class="text-gray-400 p-4">Loading table data...</p>';
+      try {
+        const r = await apiFetch(`/table/${tableName}?search=${encodeURIComponent(searchTerm)}`);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to load table data.');
+        currentTableInfo = data;
+        renderAdminTable(data.rows, data.columns, data.compositeKey);
+      } catch (err) { adminStatus.textContent = err.message; adminStatus.className = 'text-lg mb-4 text-red-400'; }
+    }
+
+    // --- SQL RUNNER ---
+    async function handleRunQuery() {
+      const query = sqlQueryInput.value;
+      if (!query) { sqlStatus.textContent = 'Please enter a query.'; sqlStatus.className = 'text-lg mb-4 text-amber-400'; return; }
+      sqlStatus.textContent = 'Running query...'; sqlStatus.className = 'text-lg mb-4 text-gray-400';
+      sqlResultsContainer.innerHTML = ''; runQueryBtn.disabled = true;
+      try {
+        const r = await apiFetch('/run_query', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ query }) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Failed to run query.');
+        renderSqlResults(data);
+      } catch (err) { sqlStatus.textContent = err.message; sqlStatus.className = 'text-lg mb-4 text-red-400'; }
+      finally { runQueryBtn.disabled = false; }
+    }
+
+    function renderSqlResults(data) {
+      sqlResultsContainer.innerHTML = '';
+      if (Array.isArray(data)) {
+        if (!data.length) { sqlStatus.textContent = 'Query OK. 0 rows.'; sqlStatus.className = 'text-lg mb-4 text-green-400'; return; }
+        sqlStatus.textContent = `Query OK. ${data.length} rows.`; sqlStatus.className = 'text-lg mb-4 text-green-400';
+        const table = document.createElement('table'); table.className='results-table';
+        const thead = table.createTHead(); const headerRow = thead.insertRow();
+        const cols = Object.keys(data[0]);
+        cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; headerRow.appendChild(th); });
+        const tbody = table.createTBody();
+        data.forEach(row => { const tr = tbody.insertRow(); cols.forEach(c => { const td = tr.insertCell(); td.textContent = row[c] ?? 'NULL'; }); });
+        sqlResultsContainer.appendChild(table);
+      } else if (typeof data === 'object' && data !== null) {
+        sqlStatus.textContent = 'Query OK.'; sqlStatus.className = 'text-lg mb-4 text-green-400';
+        let msg = '<strong>Success!</strong><ul class="list-disc pl-5 mt-2">';
+        if (data.affectedRows !== undefined) msg += `<li><strong>Rows Affected:</strong> ${data.affectedRows}</li>`;
+        if (data.insertId !== undefined)   msg += `<li><strong>Insert ID:</strong> ${data.insertId}</li>`;
+        if (data.changedRows !== undefined)msg += `<li><strong>Rows Changed:</strong> ${data.changedRows}</li>`;
+        if (data.message)                  msg += `<li><strong>Message:</strong> ${data.message}</li>`;
+        msg += '</ul>';
+        sqlResultsContainer.innerHTML = `<div class="bg-gray-700 p-4 rounded-md">${msg}</div>`;
+      } else {
+        sqlStatus.textContent = 'Query ran, unexpected data.'; sqlStatus.className = 'text-lg mb-4 text-amber-400';
+      }
+    }
+
+    // --- RECOMMENDATIONS & WATCHLIST LOADERS ---
+    let useAIRecommendations = false;
+    async function loadRecommendations() {
+      recommendGrid.innerHTML = '<p class="text-gray-400 col-span-full">Loading recommendations...</p>';
+      if (!currentUser) { recommendStatus.textContent = 'Please log in to see recommendations.'; recommendGrid.innerHTML = ''; return; }
+      try {
+        const endpoint = useAIRecommendations ? `/ai-recommendations/${currentUser.userId}` : `/recommendations/${currentUser.userId}`;
+        const r = await apiFetch(endpoint);
+        const recs = await r.json();
+        if (!Array.isArray(recs) || !recs.length) { 
+          recommendGrid.innerHTML = '<p class="text-gray-400">No recommendations yet. Rate some movies to get personalized recommendations!</p>'; 
+          recommendStatus.textContent = useAIRecommendations ? 'AI-powered recommendations' : 'Standard recommendations';
+          return; 
+        }
+        recommendGrid.innerHTML = '';
+        recommendStatus.textContent = useAIRecommendations ? `AI-powered recommendations (${recs.length} movies)` : `Standard recommendations (${recs.length} movies)`;
+        recs.forEach(m => {
+          const card = document.createElement('div');
+          card.innerHTML = movieCardHtml(m);
+          card.addEventListener('click', () => openModal(movieModal, m.movieId));
+          recommendGrid.appendChild(card.firstElementChild);
+        });
+      } catch (err) {
+        console.error('Recommendations error:', err);
+        recommendGrid.innerHTML = '<p class="text-red-400">Failed to load recommendations.</p>';
+        recommendStatus.textContent = '';
+      }
+    }
+
+    async function loadWatchlist() {
+      watchlistGrid.innerHTML = '<p class="text-gray-400 col-span-full">Loading watchlist...</p>';
+      if (!currentUser) { 
+        watchlistStatus.textContent = 'Please log in to view your watchlist.'; 
+        watchlistGrid.innerHTML=''; 
+        return; 
+      }
+      try {
+        const r = await apiFetch(`/watchlist/${currentUser.userId}`);
+        if (!r.ok) throw new Error('Failed to fetch watchlist');
+        const items = await r.json();
+        if (!Array.isArray(items) || !items.length) { 
+          watchlistGrid.innerHTML = '<p class="text-gray-400 col-span-full">Your watchlist is empty. Add movies from the Movie Dashboard!</p>'; 
+          watchlistStatus.textContent = '';
+          return; 
+        }
+        watchlistGrid.innerHTML = '';
+        watchlistStatus.textContent = `You have ${items.length} movie${items.length === 1 ? '' : 's'} in your watchlist.`;
+        // Fetch full movie details with ratings for each movie
+        const moviePromises = items.map(async (item) => {
+          try {
+            const movieRes = await apiFetch(`/movie/${item.movieId}`);
+            if (movieRes.ok) {
+              const movie = await movieRes.json();
+              // Get average rating
+              const ratingsRes = await apiFetch(`/movie_details/${item.movieId}`);
+              let avgRating = null;
+              let ratingCount = 0;
+              if (ratingsRes.ok) {
+                const ratings = await ratingsRes.json();
+                if (ratings.length > 0) {
+                  const sum = ratings.reduce((acc, r) => acc + parseFloat(r.rating), 0);
+                  avgRating = (sum / ratings.length).toFixed(1);
+                  ratingCount = ratings.length;
+                }
+              }
+              return {
+                ...item,
+                ...movie,
+                averageRating: avgRating,
+                ratingCount: ratingCount
+              };
+            }
+            return item;
+          } catch {
+            return item;
+          }
+        });
+        const moviesWithDetails = await Promise.all(moviePromises);
+        moviesWithDetails.forEach(m => {
+          const card = document.createElement('div');
+          card.innerHTML = movieCardHtml(m, true); // Show remove chip
+          card.addEventListener('click', () => openModal(movieModal, m.movieId));
+          watchlistGrid.appendChild(card.firstElementChild);
+        });
+      } catch (err) {
+        console.error('Watchlist load error:', err);
+        watchlistGrid.innerHTML = '<p class="text-red-400 col-span-full">Failed to load watchlist. Please try again.</p>';
+        watchlistStatus.textContent = '';
+      }
+    }
+
+    // --- LOAD SIMILAR MOVIES ---
+    async function loadSimilarMovies(movieId, type = 'similar') {
+      similarMoviesContainer.innerHTML = '<p class="text-gray-400 col-span-full">Loading...</p>';
+      try {
+        let endpoint = '';
+        if (type === 'similar') endpoint = `/similar-movies/${movieId}`;
+        else if (type === 'director') endpoint = `/similar-by-director/${movieId}`;
+        else if (type === 'production') endpoint = `/similar-by-production/${movieId}`;
+        
+        const r = await apiFetch(endpoint);
+        const movies = await r.json();
+        if (!Array.isArray(movies) || !movies.length) {
+          similarMoviesContainer.innerHTML = '<p class="text-gray-400 col-span-full">No similar movies found.</p>';
+          return;
+        }
+        similarMoviesContainer.innerHTML = '';
+        movies.forEach(m => {
+          const card = document.createElement('div');
+          card.innerHTML = movieCardHtml(m);
+          card.addEventListener('click', () => {
+            closeModal(movieModal);
+            setTimeout(() => openModal(movieModal, m.movieId), 300);
+          });
+          similarMoviesContainer.appendChild(card.firstElementChild);
+        });
+      } catch (err) {
+        similarMoviesContainer.innerHTML = '<p class="text-red-400 col-span-full">Failed to load similar movies.</p>';
+      }
+    }
+
+    // --- REMOVE FROM WATCHLIST ---
+    async function removeFromWatchlist(movieId) {
+      if (!currentUser) return;
+      try {
+        const resp = await apiFetch('/watchlist/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ movieId })
+        });
+        if (resp.ok) {
+          if (!watchlistPanel.classList.contains('hidden')) {
+            loadWatchlist();
+          }
+        }
+      } catch (err) {
+        console.error('Remove from watchlist error:', err);
+      }
+    }
+    window.removeFromWatchlist = removeFromWatchlist;
+
+    // --- RATE MOVIE FROM CARD ---
+    async function rateMovieFromCard(movieId, rating) {
+      if (!currentUser) {
+        openModal(authModal);
+        return;
+      }
+      try {
+        const resp = await apiFetch('/rate_movie', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ movieId, rating })
+        });
+        if (resp.ok) {
+          // Reload movies to show updated ratings
+          loadMovies(searchBar.value);
+          // Show success feedback
+          const card = document.querySelector(`.movie-card[data-movie-id="${movieId}"]`);
+          if (card) {
+            const feedback = document.createElement('div');
+            feedback.className = 'absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded z-20';
+            feedback.textContent = 'Rating saved!';
+            card.appendChild(feedback);
+            setTimeout(() => feedback.remove(), 2000);
+          }
+        } else {
+          alert('Failed to save rating. Please try again.');
+        }
+      } catch (err) {
+        console.error('Rate movie error:', err);
+        alert('An error occurred. Please try again.');
+      }
+    }
+    window.rateMovieFromCard = rateMovieFromCard;
+
+    // --- TOGGLE WATCHLIST FROM CARD ---
+    async function toggleWatchlistFromCard(movieId, buttonElement) {
+      if (!currentUser) {
+        openModal(authModal);
+        return;
+      }
+      try {
+        const isInWatchlist = buttonElement.dataset.inWatchlist === 'true';
+        const body = JSON.stringify({ movieId });
+        
+        if (isInWatchlist) {
+          const resp = await apiFetch('/watchlist/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body
+          });
+          if (resp.ok) {
+            buttonElement.dataset.inWatchlist = 'false';
+            buttonElement.textContent = 'Add to Watchlist';
+            buttonElement.className = 'w-full bg-amber-500 text-white text-xs px-3 py-2 rounded hover:bg-amber-600 transition-all';
+            // Reload watchlist if it's visible
+            if (!watchlistPanel.classList.contains('hidden')) {
+              loadWatchlist();
+            }
+          } else {
+            alert('Failed to remove from watchlist. Please try again.');
+          }
+        } else {
+          const resp = await apiFetch('/watchlist/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body
+          });
+          if (resp.ok) {
+            buttonElement.dataset.inWatchlist = 'true';
+            buttonElement.textContent = 'Remove from Watchlist';
+            buttonElement.className = 'w-full bg-gray-600 text-white text-xs px-3 py-2 rounded hover:bg-gray-700 transition-all';
+            // Reload watchlist if it's visible
+            if (!watchlistPanel.classList.contains('hidden')) {
+              loadWatchlist();
+            }
+          } else {
+            alert('Failed to add to watchlist. Please try again.');
+          }
+        }
+      } catch (err) {
+        console.error('Toggle watchlist error:', err);
+        alert('An error occurred. Please try again.');
+      }
+    }
+    window.toggleWatchlistFromCard = toggleWatchlistFromCard;
+
+    // --- LOAD PROFILE RATINGS ---
+    async function loadProfileRatings() {
+      profileRatingsGrid.innerHTML = '<p class="text-gray-400 col-span-full">Loading your ratings...</p>';
+      if (!currentUser) {
+        profileStatus.textContent = 'Please log in to view your ratings.';
+        profileRatingsGrid.innerHTML = '';
+        return;
+      }
+      try {
+        const r = await apiFetch(`/user-ratings/${currentUser.userId}`);
+        if (!r.ok) throw new Error('Failed to fetch ratings');
+        const ratings = await r.json();
+        if (!Array.isArray(ratings) || !ratings.length) {
+          profileRatingsGrid.innerHTML = '<p class="text-gray-400 col-span-full">You haven\'t rated any movies yet.</p>';
+          profileStatus.textContent = '';
+          return;
+        }
+        profileRatingsGrid.innerHTML = '';
+        profileStatus.textContent = `You have rated ${ratings.length} movie${ratings.length === 1 ? '' : 's'}.`;
+        ratings.forEach(rating => {
+          const card = document.createElement('div');
+          const img = rating.imageUrl || placeholderImage(rating.titleName);
+          card.innerHTML = `
+            <div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden transform hover:scale-105 transition-transform duration-200">
+              <img src="${img}" alt="${rating.titleName}" class="w-full h-64 object-cover">
+              <div class="p-4">
+                <h3 class="text-lg font-semibold truncate">${rating.titleName}</h3>
+                <p class="text-sm text-gray-400">${rating.releaseYear}</p>
+                <div class="mt-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm text-gray-300">Your Rating:</span>
+                    <div class="star-rating" style="flex-direction: row;">
+                      ${[5,4,3,2,1].map(i => `<input type="radio" name="rating-${rating.movieId}" value="${i}" ${parseInt(rating.rating) === i ? 'checked' : ''} onchange="updateRating(${rating.movieId}, ${i})"><label style="font-size:1.2rem;color:${parseInt(rating.rating) >= i ? '#f59e0b' : '#d1d5db'}" for="rating-${rating.movieId}-${i}">&#9733;</label>`).join('')}
+                    </div>
+                  </div>
+                  <p class="text-xs text-gray-500">Rated on ${new Date(rating.timeStamp).toLocaleDateString()}</p>
+                </div>
+                <button onclick="openModal(movieModal, ${rating.movieId})" class="mt-2 w-full bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm">View Details</button>
+              </div>
+            </div>
+          `;
+          profileRatingsGrid.appendChild(card);
+        });
+      } catch (err) {
+        console.error('Profile ratings error:', err);
+        profileRatingsGrid.innerHTML = '<p class="text-red-400 col-span-full">Failed to load your ratings.</p>';
+        profileStatus.textContent = '';
+      }
+    }
+
+    async function updateRating(movieId, rating) {
+      if (!currentUser) return;
+      try {
+        const resp = await apiFetch('/rate_movie', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ movieId, rating })
+        });
+        if (resp.ok) {
+          loadProfileRatings();
+        }
+      } catch (err) {
+        console.error('Update rating error:', err);
+      }
+    }
+    window.updateRating = updateRating;
+    window.openModal = openModal;
+
+    // --- VIEW SWITCHER ---
+    function handleViewChange(e) {
+      const view = e.target.value;
+      movieDashboard.classList.add('hidden');
+      recommendPanel.classList.add('hidden');
+      watchlistPanel.classList.add('hidden');
+      profilePanel.classList.add('hidden');
+      adminPanel.classList.add('hidden');
+      sqlRunnerPanel.classList.add('hidden');
+      dashboardSearch.classList.add('hidden');
+
+      if (view === 'dashboard') {
+        movieDashboard.classList.remove('hidden'); dashboardSearch.classList.remove('hidden');
+      } else if (view === 'recommend') {
+        recommendPanel.classList.remove('hidden'); loadRecommendations();
+      } else if (view === 'watchlist') {
+        watchlistPanel.classList.remove('hidden'); loadWatchlist();
+      } else if (view === 'profile') {
+        profilePanel.classList.remove('hidden'); loadProfileRatings();
+      } else if (view === 'admin') {
+        adminPanel.classList.remove('hidden'); populateTableSelect();
+      } else if (view === 'sql-runner') {
+        sqlRunnerPanel.classList.remove('hidden');
+      }
+    }
+
+    // --- EVENTS ---
+    document.addEventListener('DOMContentLoaded', async () => {
+      await fetchSessionUser();   // load session if exists
+      loadMovies();               // initial
+      updateHeaderUI();
+
+      searchBar.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadMovies(searchBar.value); });
+
+      document.querySelectorAll('[data-close-modal]').forEach(btn => btn.addEventListener('click', () => closeModal(btn.closest('.modal'))));
+      document.querySelectorAll('.modal').forEach(modalEl => modalEl.addEventListener('click', (e) => { if (e.target === modalEl) closeModal(modalEl); }));
+
+      headerButtons.addEventListener('click', (e) => {
+        if (e.target.id === 'open-auth-btn') openModal(authModal);
+        if (e.target.id === 'open-add-movie-btn') openModal(addMovieModal);
+        if (e.target.id === 'logout-btn') handleLogout();
+      });
+
+      // OAuth buttons
+      document.getElementById('google-login').addEventListener('click', () => openOAuth('/auth/google'));
+      document.getElementById('github-login').addEventListener('click', () => openOAuth('/auth/github'));
+
+      // Auth tabs
+      authModal.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          if (tab === 'login') {
+            loginForm.classList.remove('hidden'); registerForm.classList.add('hidden');
+          } else {
+            loginForm.classList.add('hidden'); registerForm.classList.remove('hidden');
+          }
+          loginStatus.textContent = ''; registerStatus.textContent = '';
+          authModal.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('border-blue-500','text-white'));
+          btn.classList.add('border-blue-500','text-white');
+        });
+      });
+
+      // Forms
+      ratingForm.addEventListener('submit', handleRatingSubmit);
+      loginForm.addEventListener('submit', handleLogin);
+      registerForm.addEventListener('submit', handleRegister);
+      addMovieForm.addEventListener('submit', handleAddMovie);
+
+      // Prevent Enter from submitting in tag inputs
+      actorInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+      genreInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+
+      // Admin events
+      viewSelector.addEventListener('change', handleViewChange);
+      tableSelect.addEventListener('change', (e) => loadTableData(e.target.value, tableSearch.value));
+      tableSearch.addEventListener('input', (e) => loadTableData(tableSelect.value, e.target.value));
+      addRecordBtn.addEventListener('click', handleAddRecord);
+      runQueryBtn.addEventListener('click', handleRunQuery);
+
+      // Recommendation type buttons
+      document.getElementById('ai-recommend-btn').addEventListener('click', () => {
+        useAIRecommendations = true;
+        loadRecommendations();
+      });
+      document.getElementById('standard-recommend-btn').addEventListener('click', () => {
+        useAIRecommendations = false;
+        loadRecommendations();
+      });
+
+      // Similar movies tab events
+      document.querySelectorAll('.similar-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          const movieId = ratingForm.dataset.movieId;
+          if (!movieId) return;
+          
+          // Update tab styles
+          document.querySelectorAll('.similar-tab-btn').forEach(b => {
+            b.classList.remove('border-blue-500', 'text-white');
+            b.classList.add('border-transparent', 'text-gray-400');
+          });
+          btn.classList.remove('border-transparent', 'text-gray-400');
+          btn.classList.add('border-blue-500', 'text-white');
+          
+          // Load appropriate similar movies
+          loadSimilarMovies(movieId, tab);
+        });
+      });
+    });
+
+    function handleAddRecord() {
+      const { columns, compositeKey } = currentTableInfo;
+      if (!columns) { adminStatus.textContent = 'Please select a table first.'; adminStatus.className = 'text-lg mb-4 text-red-400'; return; }
+      const tbody = adminTableContainer.querySelector('table tbody');
+      if (!tbody) return;
+      if (tbody.querySelector('.new-record-row')) {
+        adminStatus.textContent = 'Please save the existing new record first.'; adminStatus.className = 'text-lg mb-4 text-amber-400'; return;
+      }
+      const newRowData = {}; columns.forEach(c => newRowData[c.COLUMN_NAME] = '');
+      const tr = createTableRow(newRowData, columns, compositeKey, true);
+      tbody.prepend(tr);
+      tr.querySelector('td[contenteditable="true"]')?.focus();
+    }
+  </script>
+</body>
+</html>
